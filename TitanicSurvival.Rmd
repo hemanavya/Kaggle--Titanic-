@@ -1,0 +1,165 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+mydata=read.csv(file.choose())
+```
+
+
+```{r}
+sum(is.na(mydata))
+X=mydata[,-c(2)]
+Y=mydata[2]
+```
+
+
+```{r}
+cbind(colSums(is.na(X)))
+summary(X)
+```
+
+#KNN imptuation - Missing value treatment
+```{r}
+library(VIM)
+#?kNN()
+newdata=kNN(X,variable = c("Age"),k=7)
+summary(newdata)
+sum(is.na(newdata))
+write.csv(newdata,"C:\\Users\\heman\\Desktop\\Titanic\\knnimputed.csv")
+str(newdata)
+newdata=newdata[,-c(12)]
+```
+
+
+```{r}
+newdata=cbind(newdata,Survived=mydata[,2])
+```
+
+
+```{r}
+newdata$Sex=as.factor(newdata$Sex)
+newdata$Survived=as.factor(newdata$Survived)
+newdata$Embarked=as.factor(newdata$Embarked)
+newdata$Pclass = factor(newdata$Pclass, levels = c("1", "2", "3"), order = TRUE)
+```
+
+
+```{r}
+train=newdata[1:891,]
+test=newdata[892:1309,]
+```
+
+### complte.cases --> to be used to remove NAs by selecting particular columns
+```{r}
+cbind(colSums(is.na(test)))
+test=test[complete.cases(test[ , c(9)]),]
+```
+
+### Y- Class distribution
+```{r}
+prop.table(table(train$Survived))
+```
+
+
+```{r}
+Train=train[,-c(3,8,10)]
+Test=test[,-c(3,8,10)]
+fullmodel=glm(Train$Survived ~ .,data=Train,family=binomial)
+library(lmtest)
+lrtest(fullmodel)
+library(car)
+#vif(fullmodel)
+summary(fullmodel)
+```
+
+
+```{r}
+Train=Train[,-c(8)]
+model2=glm(Train$Survived ~ .,data=Train,family=binomial)
+summary(model2)
+```
+
+
+```{r}
+Test=Test[,-c(8)]
+```
+
+## Manually Pruned RF- Using hyper parameters
+```{r}
+mtry1=sqrt(ncol(Train))
+library(randomForest)
+RF1 = randomForest(Train$Survived ~ .,data = Train, mtry = mtry1,ntree = 501,importance = TRUE, set.seed(420))
+print(RF1)
+```
+
+### Tuned RF
+```{r}
+RF_tune = tuneRF(x = Train[, -c(8)],y = Train$Survived, mtryStart = mtry1,stepFactor = 1.5, ntreeTry = 501, improve = 0.0001,trace = TRUE, plot = TRUE, doBest = TRUE, importance = TRUE,)
+print(RF_tune)
+```
+
+### XBboost using repeatedcv 
+```{r}
+library(caret)
+library(tidyverse)
+library(xgboost)
+set.seed(500)
+Train_Xgb <- caret::train(Survived ~ .,
+                      data = Train, 
+                      method="xgbTree", 
+                      trControl = trainControl("repeatedcv", number = 3,repeats = 1))
+
+Train_Xgb$bestTune
+```
+
+
+```{r}
+# Make predictions on the train data
+Predx=predict(Train_Xgb,newdata = Test)
+table(Train$Survived,Predx)
+```
+
+
+```{r}
+trControl1 = trainControl("repeatedcv", number = 5,repeats = 2,classProbs = TRUE)
+xgb.grid = expand.grid(nrounds=1000,max_depth=seq(2,8),eta=c(0.01,0.3,1),gamma=c(0.0,0.2,1),colsample_bytree=0.8,min_child_weight=1,
+subsample=1)
+```
+
+
+```{r}
+levels(Train$Survived)=c("Yes","No")
+xgb_tune=train(Survived ~., data = Train, method = "xgbTree",metric="kappa",
+               trControl=trControl1,tuneGrid=xgb.grid)
+```
+
+### Accuracy 91.1 -- Tuned Grid search XGBoost
+```{r}
+Pred=predict(xgb_tune,newdata = Train)
+table(Train$Survived,Pred)
+```
+
+
+
+```{r}
+library(pROC)
+roc_obj <- roc(as.numeric(Train$Survived), as.numeric(Pred))
+auc(roc_obj)
+```
+
+
+```{r}
+max(xgb_tune$evaluation_log)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
